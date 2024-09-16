@@ -37,7 +37,7 @@ def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
                 continue     
             scaler = pickle.load(open(f"scalers/{analysis}.pkl","rb"))
             pca = pickle.load(open(f"pca/{analysis}.pkl","rb"))
-
+            imputer = pickle.load(open(f"imputers/{analysis}.pkl","rb"))
             pca_df = pd.read_csv(f"pca_df/{analysis}.csv",index_col=0)
             analysis_df = pd.read_csv(f"analysis/{analysis}.csv",index_col=0)
 
@@ -52,27 +52,35 @@ def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
             failed_units_comparison = {}    
             for col in pca_df.columns:
                 expected_units = unit_decision.loc[(unit_decision['crop'] == analysis) & (unit_decision['chemical_name'] == col)]
-                print(expected_units[['crop','chemical_name','unit_name']].to_dict())
                 import math
                 if type(row[col]) != dict and math.isnan(row[col]):
-                    failed_units_comparison[col] = expected_units[['crop','chemical_name','unit_name']].to_dict()
+                    failed_units_comparison[col] = {}
+                    failed_units_comparison[col]['expected_units'] = expected_units['unit_name'].tolist()[0]
+                    failed_units_comparison[col]['units_provided'] = None
+                    print(col)
+                    print(failed_units_comparison)
                 elif row[col]['units'] !=   expected_units['unit_name'].values[0] :
-                    failed_units_comparison[col] = expected_units[['crop','chemical_name','unit_name']].to_dict()
+                    failed_units_comparison[col] = {}
+                    failed_units_comparison[col]['expected_units'] = expected_units['unit_name'].tolist()[0]
+                    failed_units_comparison[col]['units_provided'] = row[col]['units']
                 else:
-                    row[col] = row[col]['result']
+                    continue    
             if len(failed_units_comparison.keys()) > 0:
                 result[sample_code].append({"sample_code": sample_code,"status":"warning", "message": f"Wrong units provided", "details": f"Expected units are {str(failed_units_comparison)} for analysis: {analysis}" })
                 continue
+            for col in analysis_df.columns:
+                if type(row[col]) == dict:
+                    row[col] = row[col]['result']
             
             out_of_bounds_chems = [ ]
             for col in tmp_df.columns:
                 if col == "sample_code":
                     continue
                 if col == "ec_salts":
-                    if row[col]['result'] > 105 or row[col]['result'] < 95:
+                    if row[col] > 105 or row[col] < 95:
                         out_of_bounds_chems.append("ec_salts out of bounds. Allowed bounds are 95 - 105")
                 if col == "Charge Balance":
-                    if row[col]['result'] < -1:
+                    if row[col] < -1:
                         out_of_bounds_chems.append("Charge Balance out of bounds. Allowed lower boundary is -10. ")       
                 elif col.lower() == "total suspended solids" and row['analysis_name'].lower() == "total suspended solids":
                     if row[col] > 1:
@@ -82,8 +90,7 @@ def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
                 continue    
 
             tmp_df = pd.DataFrame(row).T[analysis_df.columns]
-            print(tmp_df.columns)
-            # tmp_df = 
+            tmp_df = imputer.transform(tmp_df)
             df_scaled = scaler.transform(tmp_df)
             df_pca = pd.DataFrame(pca.transform(df_scaled))
 
@@ -92,16 +99,14 @@ def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
 
             mahalanobis_distance = distance.mahalanobis(df_pca.iloc[0], mu, np.linalg.inv(sigma))
 
-            print(mahalanobis_distance)
 
             expected_md = mahalanobis_thresholds[analysis]
-            print(expected_md)
 
             if mahalanobis_distance > expected_md:
-                result[sample_code].append({"sample_code": sample_code,"status":"fail", "message": "Mahalanobis distance exceeds threshold", "description":f"Mahalanobis distance of {mahalanobis_distance} exceeds threshold of {expected_md} for analysis: {analysis}" })
+                result[sample_code].append({"sample_code": sample_code,"status":"fail", "message": "Mahalanobis distance exceeds threshold", "details":f"Mahalanobis distance of {mahalanobis_distance} exceeds threshold of {expected_md} for analysis: {analysis}" })
             else:
-                result[sample_code].append({"sample_code": sample_code,"status":"pass","message": "Mahalanobis distance within threshold", "description":f"Mahalanobis distance of {mahalanobis_distance} is within threshold of {expected_md} for analysis: {analysis}" })
-                    
+                result[sample_code].append({"sample_code": sample_code,"status":"pass","message": "Mahalanobis distance within threshold", "details":f"Mahalanobis distance of {mahalanobis_distance} is within threshold of {expected_md} for analysis: {analysis}" })
+                                    
 
         return func.HttpResponse(json.dumps(result),status_code=200)
     except Exception as e:
