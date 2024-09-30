@@ -5,6 +5,7 @@ from scipy.spatial import distance
 import pickle
 import numpy as np
 import json
+import math
 
 app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
 
@@ -19,22 +20,21 @@ def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
         mahalanobis_thresholds = pickle.load(open("mahalanobis_thresholds.dict","rb"))
 
         result = {}
-        _df = pd.DataFrame()
-        for index, row in _.iterrows():
-            analyses = row['analysis_id']
-            for analysis_ in analyses:
-                df_analysis_ = pd.DataFrame(row).T
-                df_analysis_['analysis_name'] = analysis_dict[analysis_]
-                _df = pd.concat([_df, df_analysis_])
+        _df = _.explode('analysis_id', ignore_index=True)
+
         for index,row in _df.iterrows():
             sample_code = row['sample_code']
-            analysis = row['analysis_name']
-            analysis_id = row['analysis_id']
             if sample_code not in result.keys():
                 result[sample_code] = []
+            if math.isnan(row['analysis_id']):
+                result[sample_code].append({"sample_code": sample_code,"status":"warning", "message": f"Analysis not in specified", "details": f"Analysis id not provided" })   
+                continue
+            row['analysis_name'] = analysis_dict[row['analysis_id']]
+            analysis = row['analysis_name']
+            analysis_id = row['analysis_id']
             if analysis not in mahalanobis_thresholds.keys():
                 result[sample_code].append({"sample_code": sample_code,"status":"warning", "message": f"Analysis not in models", "details": f"Analysis: {analysis} is not in the list of defined models" })   
-                continue     
+                continue    
             scaler = pickle.load(open(f"scalers/{analysis}.pkl","rb"))
             pca = pickle.load(open(f"pca/{analysis}.pkl","rb"))
             imputer = pickle.load(open(f"imputers/{analysis}.pkl","rb"))
@@ -103,9 +103,9 @@ def http_trigger(req: func.HttpRequest) -> func.HttpResponse:
             expected_md = mahalanobis_thresholds[analysis]
 
             if mahalanobis_distance > expected_md:
-                result[sample_code].append({"sample_code": sample_code,"status":"fail", "message": "Mahalanobis distance exceeds threshold", "details":f"Mahalanobis distance of {mahalanobis_distance} exceeds threshold of {expected_md} for analysis: {analysis}" })
+                result[sample_code].append({"sample_code": sample_code,"status":"fail", "message": "Mahalanobis distance exceeds threshold", "details":f"Mahalanobis distance of {round(mahalanobis_distance,3)} exceeds threshold of {round(expected_md,3)} for analysis: {analysis}" })
             else:
-                result[sample_code].append({"sample_code": sample_code,"status":"pass","message": "Mahalanobis distance within threshold", "details":f"Mahalanobis distance of {mahalanobis_distance} is within threshold of {expected_md} for analysis: {analysis}" })
+                result[sample_code].append({"sample_code": sample_code,"status":"pass","message": "Mahalanobis distance within threshold", "details":f"Mahalanobis distance of {round(mahalanobis_distance,3)} is within threshold of {round(expected_md,3)} for analysis: {analysis}" })
                                     
 
         return func.HttpResponse(json.dumps(result),status_code=200)
