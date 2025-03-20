@@ -1,4 +1,3 @@
-import azure.functions as func
 import logging
 import pandas as pd
 from scipy.spatial import distance
@@ -6,11 +5,13 @@ import pickle
 import numpy as np
 import json
 import math
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
-app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
+app = FastAPI()
 
 @app.route(route="hydroponicsVerification")
-def hydroponicsVerification(req: func.HttpRequest) -> func.HttpResponse:
+def hydroponicsVerification(req: Request):
     logging.info('Python HTTP trigger function processed a request.')
     try:
         req_body = req.get_json()

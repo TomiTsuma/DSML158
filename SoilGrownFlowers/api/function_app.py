@@ -7,11 +7,14 @@ import pickle
 import numpy as np
 import json
 import math
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
-app = func.FunctionApp(http_auth_level=func.AuthLevel.ANONYMOUS)
+app = FastAPI()
+
 
 @app.route(route="soilGrownFlowersVerfication")
-def soilGrownFlowersVerfication(req: func.HttpRequest) -> func.HttpResponse:
+def soilGrownFlowersVerfication(req: Request):
     logging.info('Python HTTP trigger function processed a request.')
     try:
         req_body = req.get_json()
@@ -114,10 +117,9 @@ def soilGrownFlowersVerfication(req: func.HttpRequest) -> func.HttpResponse:
                 result[sample_code].append({"sample_code": sample_code,"status":"fail", "message": "Mahalanobis distance exceeds threshold", "details":f"Mahalanobis distance of {round(mahalanobis_distance,2)} exceeds threshold of {round(expected_md,2)} for analysis: {analysis}", "analysis": row['analysis_name'] })
             else:
                 result[sample_code].append({"sample_code": sample_code,"status":"pass","message": "Mahalanobis distance within threshold", "details":f"Mahalanobis distance of {round(mahalanobis_distance,2)} is within threshold of {round(expected_md,2)} for analysis: {analysis}", "analysis": row['analysis_name'] })
-        return func.HttpResponse(json.dumps(result),status_code=200)
+        return json.dumps(result)
     except Exception as e:
         print("Issue here", e)
-        return func.HttpResponse(
-             json.dumps(str(e)),
-             status_code=500
-        )
+        return {
+            "error":e
+        }
